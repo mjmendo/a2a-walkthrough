@@ -1,0 +1,2 @@
+pytest
+# openai-agents  # Uncomment to use the real SDK (requires OPENAI_API_KEY)
