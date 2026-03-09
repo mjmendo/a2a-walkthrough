@@ -18,6 +18,9 @@ Agents communicate through **named channels** brokered by Redis pub/sub. No agen
 | **Ordering** | Redis pub/sub delivers messages in order *within a channel* but gives no cross-channel ordering guarantees. |
 | **Debugging** | Harder to trace than direct calls — you need to correlate events by ID across multiple channels. |
 | **No persistence** | Messages published when no subscriber is connected are lost. Use Redis Streams for durability. |
+| **Dedicated connection** | `pubsub()` creates its own connection; the original `Redis` client remains usable for `publish()` and other commands. This is why `SubscriberAgent` can both subscribe and publish using the same client instance. |
+| **Auto-reconnect** | redis-py's `PubSub` automatically reconnects and re-subscribes to channels after a dropped connection. However, any messages published during the disconnection window are permanently lost — auto-reconnect restores the subscription, not the missed messages. |
+| **Subscription confirmation** | `pubsub.listen()` first yields a `{"type": "subscribe", ...}` confirmation message before delivering real messages. The implementation filters this by checking `raw["type"] != "message"`, which is the correct pattern. |
 
 ## Architecture
 

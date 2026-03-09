@@ -108,13 +108,13 @@ class TestAgentStructure:
 
     def test_termination_check_triggers_on_terminate(self, agents):
         user_proxy, _, _ = agents
-        # UserProxyAgent has is_termination_msg set in our code
-        fn = user_proxy.is_termination_msg
+        # ag2 stores the termination function as _is_termination_msg
+        fn = user_proxy._is_termination_msg
         assert fn({"content": "... TERMINATE"})
 
     def test_termination_check_ignores_normal_messages(self, agents):
         user_proxy, _, _ = agents
-        fn = user_proxy.is_termination_msg
+        fn = user_proxy._is_termination_msg
         assert not fn({"content": "Step 1 complete."})
 
 

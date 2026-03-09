@@ -24,6 +24,7 @@ aimed at an AI engineer wanting to become an expert in this space.
 | 8 | LangGraph (State-Machine Multi-Agent) | `08-langgraph/` | High | TODO |
 | 9 | CrewAI (Role-Based Crews) | `09-crewai/` | Medium | TODO |
 | 10 | AutoGen / Microsoft Agent Framework | `10-autogen/` | Medium | TODO |
+| 11 | OpenClaw Announcement (Subagent Coordination) | `11-openclaw-announcement/` | High | Done |
 
 ---
 
@@ -128,9 +129,15 @@ a2a-walkthrough/
 │   ├── README.md
 │   ├── crew.py
 │   └── test_integration.py
-└── 10-autogen/
+├── 10-autogen/
+│   ├── README.md
+│   ├── agents.py
+│   └── test_integration.py
+└── 11-openclaw-announcement/
     ├── README.md
-    ├── agents.py
+    ├── gateway.py
+    ├── subagent.py
+    ├── main_agent.py
     └── test_integration.py
 ```
 
@@ -151,4 +158,5 @@ a2a-walkthrough/
 | 08-langgraph | Claude | Medium | TODO |
 | 09-crewai | Claude | Medium | TODO |
 | 10-autogen | Claude | Medium | TODO |
+| 11-openclaw-announcement | Claude | High | Done |
 | LEARNING_GUIDE.md | Claude | High | TODO |

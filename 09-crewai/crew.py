@@ -123,10 +123,13 @@ def build_crew() -> Crew:
         llm="gpt-4o-mini",
     )
 
-    # Patch execute_task BEFORE the agents are handed to the crew
-    researcher.execute_task = _make_mock_execute("researcher", "research")  # type: ignore
-    analyst.execute_task    = _make_mock_execute("analyst",    "compar")    # type: ignore
-    writer.execute_task     = _make_mock_execute("writer",     "summary")   # type: ignore
+    # Patch execute_task BEFORE the agents are handed to the crew.
+    # crewai >= 1.x uses a strict Pydantic model; direct attribute assignment
+    # raises ValueError for unknown fields.  object.__setattr__ bypasses the
+    # Pydantic validator and writes directly to the instance __dict__.
+    object.__setattr__(researcher, "execute_task", _make_mock_execute("researcher", "research"))
+    object.__setattr__(analyst,    "execute_task", _make_mock_execute("analyst",    "compar"))
+    object.__setattr__(writer,     "execute_task", _make_mock_execute("writer",     "summary"))
 
     # ── Tasks ───────────────────────────────────────────────────────────────
     # Each task has a description and an expected_output (used by CrewAI to

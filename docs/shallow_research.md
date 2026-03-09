@@ -16,6 +16,26 @@ Agents collaborate through a **shared workspace** rather than messaging each oth
 
 A supervisor/orchestrator decomposes a task into subtasks and assigns them to specialist workers, who report results back up the chain. OpenClaw's announce system is a variant of this. It maps well to how complex real-world projects are managed, but the orchestrator becomes a single point of failure if not designed carefully. [nexastack](https://www.nexastack.ai/blog/multi-agent-ai-infrastructure)
 
+## OpenClaw Announcement (Subagent Coordination)
+
+OpenClaw (Anthropic's internal agent runtime) replaces synchronous return values
+with **announcements**: every subagent, on completion, announces its result to a
+central **Gateway**, which routes it to the requester.  The spawning call returns
+immediately — the parent is never blocked.  Three sub-patterns matter:
+
+- **Simple subagent + announcement** — non-blocking spawn, `ANNOUNCE_SKIP` sentinel
+  to suppress quiet tasks, outcome classification (`ok/error/timeout/unknown`), and
+  exponential-backoff retry on delivery failure.
+- **Nested orchestrator** — depth-limited trees (`maxSpawnDepth=2`); workers announce
+  internally to the orchestrator, which synthesises and announces externally to main.
+  Session keys encode depth: `agent:<id>:subagent:<uuid>:subagent:<uuid>`.
+- **ACP session** — bridges to external coding harnesses (Claude Code, Codex) via
+  `agent:<id>:acp:<uuid>` keys and `streamTo="parent"` progress streaming.
+
+The Gateway maintains an idempotency store (seen-key set) so duplicate announces
+from retries are silently dropped.  This makes the announce pattern at-least-once
+reliable without risk of duplicate processing.
+
 ## Pattern Comparison
 
 | Pattern | Coupling | Best For | Key Risk |
@@ -24,6 +44,7 @@ A supervisor/orchestrator decomposes a task into subtasks and assigns them to sp
 | Pub-Sub | Loose | Pipelines, fan-out, async | Hard to debug, eventual consistency |
 | Blackboard | Shared state | Iterative refinement, multi-expert review | Concurrency conflicts, termination |
 | Hierarchical Delegation | Structured | Task decomposition, specialist teams | Single point of failure at top |
+| OpenClaw Announcement | Medium | Non-blocking trees, long-running subtasks | Added gateway complexity |
 
 ## In Practice
 

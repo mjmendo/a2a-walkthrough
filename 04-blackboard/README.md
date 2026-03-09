@@ -18,7 +18,9 @@ In this implementation, three agents collaborate to produce a written document:
 |---|---|
 | **Use when** | Multiple independent agents contribute to a shared artifact; order is partially flexible; late-binding between producers and consumers is desirable. |
 | **Avoid when** | Agents need real-time communication; you need strict ordering guarantees; the workspace grows unbounded without a GC strategy. |
-| **Shared state risks** | Concurrent writes to the same key cause last-writer-wins races. Use Redis transactions (`WATCH`/`MULTI`/`EXEC`) or optimistic locking if agents run in parallel. |
+| **Atomicity** | Individual `HSET`, `HGET`, and `HGETALL` commands are each atomic at the Redis server level — no partial writes or torn reads ever occur at the per-command level. |
+| **Shared state risks** | Concurrent writes to the same key cause last-writer-wins at the application level (the last `HSET` wins). Use Redis transactions (`WATCH`/`MULTI`/`EXEC`) or `Pipeline` (`MULTI`/`EXEC`) for read-modify-write cycles where another agent could interleave. |
+| **Thread safety** | The `redis-py` `Redis` client is thread-safe: each command acquires a connection from the pool, executes, and returns it. `Pipeline` and `PubSub` objects are *not* thread-safe and must not be shared across threads. |
 | **Termination** | Requires an explicit stopping condition — e.g. a `"review"` key reaching status `"done"`. Without it, agents may loop indefinitely waiting for input. |
 | **Observability** | The full history of the task lives in the blackboard — easy to inspect at any point. |
 

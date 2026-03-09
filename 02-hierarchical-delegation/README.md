@@ -13,6 +13,8 @@ This pattern is common in multi-agent pipelines where a "manager" agent breaks d
 | **Use when** | A goal can be cleanly decomposed; specialists benefit from isolation; you want a single coordinator tracking progress. |
 | **Avoid when** | Workers need to communicate with each other; the decomposition is dynamic and hard to express up-front. |
 | **Single point of failure** | If the Orchestrator crashes, the entire pipeline stops — even if workers are healthy. |
+| **No worker-failure handling** | This implementation has no try/except around worker calls — an unhandled exception in any worker propagates and aborts the entire pipeline. Production implementations should catch worker errors, log them, and decide whether to retry, skip, or fail-fast. |
+| **Sequential delegation** | Workers are called one at a time in this implementation. Parallel delegation (spawning all research workers concurrently) is a common optimisation but adds coordination complexity and context-fragmentation risk. |
 | **Easy to extend** | Add new worker types without changing existing ones; only the Orchestrator's decomposition logic changes. |
 | **Observability** | All delegation is visible through the Orchestrator's logs — straightforward to audit. |
 

@@ -19,9 +19,10 @@
 10. [Framework: LangGraph](#10-framework-langgraph)
 11. [Framework: CrewAI](#11-framework-crewai)
 12. [Framework: AutoGen / Microsoft Agent Framework](#12-framework-autogen--microsoft-agent-framework)
-13. [Architecture Trade-offs Comparison](#13-architecture-trade-offs-comparison)
-14. [Maturity & Adoption Landscape (2025-2026)](#14-maturity--adoption-landscape-2025-2026)
-15. [Further Reading](#15-further-reading)
+13. [Runtime: OpenClaw Announcement Pattern](#13-runtime-openclaw-announcement-pattern)
+14. [Architecture Trade-offs Comparison](#14-architecture-trade-offs-comparison)
+15. [Maturity & Adoption Landscape (2025-2026)](#15-maturity--adoption-landscape-2025-2026)
+16. [Further Reading](#16-further-reading)
 
 ---
 
@@ -587,22 +588,113 @@ Kernel, adding enterprise concerns:
 
 ---
 
-## 13. Architecture Trade-offs Comparison
+## 13. Runtime: OpenClaw Announcement Pattern
 
-| Dimension | Direct RPC | Hierarchical | Pub-Sub | Blackboard | A2A | MCP | Agents SDK | LangGraph | CrewAI | AutoGen |
-|---|---|---|---|---|---|---|---|---|---|---|
-| **Coupling** | Tight | Medium | Loose | Loose | Medium | Tight (tool) | Medium | Medium | Medium | Loose |
-| **Traceability** | Excellent | Good | Poor | Medium | Good | Good | Excellent | Excellent | Good | Medium |
-| **Scalability** | Low | Medium | High | Medium | High | N/A | Medium | Medium | Medium | Low |
-| **Flexibility** | High | High | High | High | High | Medium | Medium | Very High | Low | High |
-| **Complexity** | Low | Medium | Medium | Medium | High | Medium | Low | High | Low | Medium |
-| **Iterative Workflows** | No | Partial | No | Yes | Yes | No | Yes | Yes | Partial | Yes |
-| **Cross-vendor Interop** | Custom | Custom | Custom | Custom | Yes | Yes | No | Partial | No | No |
-| **Production Maturity** | High | High | High | High | Medium | High | High | High | Medium | Medium |
+**Code**: `11-openclaw-announcement/`
+
+### What Is OpenClaw?
+
+OpenClaw is Anthropic's internal agent runtime powering Claude Code and related
+harnesses.  Its core coordination primitive is the **announcement**: instead of
+returning values up a call stack, every subagent *announces* its completion result
+to a **Gateway**, which routes the payload to the right recipient.  This small
+design choice has large architectural consequences.
+
+### Why Announcements Instead of Return Values?
+
+| Return value | Announcement |
+|---|---|
+| Caller blocks until callee returns | Caller continues immediately |
+| One call stack — easy to trace | Decoupled — requester can do other work |
+| Long-running tasks block context | Long-running tasks run in background |
+| Retry logic lives in the caller | Retry logic lives in the subagent |
+
+For tasks that run for seconds to minutes (file analysis, web search, code
+generation), blocking the parent's context window is wasteful.  The announcement
+pattern gives the parent its context back immediately.
+
+### Sub-Pattern A — Simple Subagent + Announcement
+
+```
+MainAgent (depth 0)
+  └── sessions_spawn("research-agent")   ← returns SpawnResult immediately
+        [background thread]
+        run task → result
+        runSubagentAnnounceFlow:
+          build AnnouncePayload
+          deliver to Gateway (with retry)
+        Gateway → on_announce(payload, deliver=True) → MainAgent
+```
+
+The `ANNOUNCE_SKIP` sentinel suppresses the announce entirely — useful for
+"fire-and-forget" background operations that don't need to report back.
+
+### Sub-Pattern B — Nested Orchestrator (`maxSpawnDepth=2`)
+
+OpenClaw enforces a depth limit.  A depth-1 orchestrator may spawn depth-2 workers;
+depth-2 workers cannot spawn further.  The Gateway knows the delivery mode by
+inspecting the requester's depth:
+
+- **Requester depth 0** → external delivery (`deliver=True`) — result goes to the user.
+- **Requester depth ≥ 1** → internal injection (`deliver=False`) — result is
+  synthesised in the orchestrator's session before it announces upward.
+
+This guarantees main receives exactly **one** announce (the orchestrator's synthesis),
+not N announces from N workers.
+
+```
+depth 0: agent:<id>:main
+depth 1: agent:<id>:subagent:<uuid>
+depth 2: agent:<id>:subagent:<uuid>:subagent:<uuid>
+```
+
+### Sub-Pattern C — ACP Session (Agent Client Protocol)
+
+ACP is OpenClaw's bridge to *external* coding harnesses (Claude Code, Codex,
+Gemini CLI).  ACP sessions use a distinct key prefix (`:acp:`) and the
+`streamTo="parent"` option, which emits incremental progress back as system events
+rather than waiting for a final announce.
+
+```
+agent:<id>:acp:<uuid>   ← ACP session key (not sandboxable, runs on host)
+streamTo="parent"       ← progress events routed back to requester in real time
+```
+
+### Idempotency and Retry
+
+OpenClaw's announce flow includes two reliability guarantees:
+1. **Idempotency store** — the Gateway tracks a set of seen `(sessionKey, runId)`
+   pairs and silently drops duplicates.
+2. **Exponential backoff** — on transient failure, the subagent retries at
+   5 s → 10 s → 20 s before giving up and logging a permanent failure.
+
+### Connection to Other Patterns
+
+OpenClaw's announce pattern is a production-hardened evolution of Hierarchical
+Delegation (Pattern 2): same tree structure, but with non-blocking spawn,
+built-in retry, depth limits, and a formal routing layer.  The ACP sub-pattern
+parallels MCP (Pattern 6): both bridge first-party agents to third-party tools/
+harnesses, but MCP uses synchronous tool calls while ACP uses async sessions with
+streaming progress.
 
 ---
 
-## 14. Maturity & Adoption Landscape (2025-2026)
+## 14. Architecture Trade-offs Comparison
+
+| Dimension | Direct RPC | Hierarchical | Pub-Sub | Blackboard | A2A | MCP | Agents SDK | LangGraph | CrewAI | AutoGen | OpenClaw |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **Coupling** | Tight | Medium | Loose | Loose | Medium | Tight (tool) | Medium | Medium | Medium | Loose | Medium |
+| **Traceability** | Excellent | Good | Poor | Medium | Good | Good | Excellent | Excellent | Good | Medium | Good |
+| **Scalability** | Low | Medium | High | Medium | High | N/A | Medium | Medium | Medium | Low | High |
+| **Flexibility** | High | High | High | High | High | Medium | Medium | Very High | Low | High | Medium |
+| **Complexity** | Low | Medium | Medium | Medium | High | Medium | Low | High | Low | Medium | High |
+| **Iterative Workflows** | No | Partial | No | Yes | Yes | No | Yes | Yes | Partial | Yes | Yes |
+| **Cross-vendor Interop** | Custom | Custom | Custom | Custom | Yes | Yes | No | Partial | No | No | ACP only |
+| **Production Maturity** | High | High | High | High | Medium | High | High | High | Medium | Medium | High |
+
+---
+
+## 15. Maturity & Adoption Landscape (2025-2026)
 
 ### Standards (Converging)
 
@@ -638,7 +730,7 @@ The market is splitting into two camps:
 
 ---
 
-## 15. Further Reading
+## 16. Further Reading
 
 ### Standards
 - A2A Specification: https://a2a-protocol.org/latest/specification/
